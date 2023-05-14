@@ -26,6 +26,7 @@ from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device
 from utils.capnums import Camera
 from dialog.rtsp_win import Window
+from pathlib import Path
 
 
 class DetThread(QThread):
@@ -50,6 +51,7 @@ class DetThread(QThread):
         self.rate_check = True  # Whether to enable delay
         self.rate = 100
         self.save_fold = './result'
+        self.save_txt_fold = './result/labels'
         self.low_illumination = True  # whether to enhance images
 
     @torch.no_grad()
@@ -58,7 +60,7 @@ class DetThread(QThread):
             max_det=1000,  # maximum detections per image
             device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
             view_img=True,  # show results
-            save_txt=False,  # save results to *.txt
+            save_txt=True,  # save results to *.txt
             save_conf=False,  # save confidences in --save-txt labels
             save_crop=False,  # save cropped prediction boxes
             nosave=False,  # do not save images/videos
@@ -67,8 +69,8 @@ class DetThread(QThread):
             augment=False,  # augmented inference
             visualize=False,  # visualize features
             update=False,  # update all models
-            project='runs/detect',  # save results to project/name
-            name='exp',  # save results to project/name
+            project='D:/PyQt5-YOLOv5',  # save results to project/name
+            name='result',  # save results to project/name
             exist_ok=False,  # existing project/name ok, do not increment
             line_thickness=3,  # bounding box thickness (pixels)
             hide_labels=False,  # hide labels
@@ -108,6 +110,8 @@ class DetThread(QThread):
             jump_count = 0
             start_time = time.time()
             dataset = iter(dataset)
+
+            global tplay
 
             while True:
                 if self.jump_out:
@@ -172,7 +176,11 @@ class DetThread(QThread):
                                                max_det=max_det)
                     # Process detections
                     for i, det in enumerate(pred):  # detections per image
-                        s=''
+                        p = Path(path)
+                        frame = getattr(dataset, 'frame', 0)
+                        txt_path = str(Path('D:/PyQt5-YOLOv5/result/labels') / p.stem) + ('' if not self.vid_cap else f'_{frame}')
+
+                        s = ''
                         im0 = im0s.copy()
                         s += '%gx%g ' % img.shape[2:]  # 输出字符串
                         gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # 归一化增益
@@ -205,10 +213,19 @@ class DetThread(QThread):
                                             tplay = time.time()  # 当前系统时钟
                             # Write results
                             for *xyxy, conf, cls in reversed(det):
-                                c = int(cls)  # integer class
-                                statistic_dic[names[c]] += 1
-                                label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
-                                annotator.box_label(xyxy, label, color=colors(c, True))
+                                xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # 归一化xywh
+                                line = (cls, *xywh, conf)  # 标签格式
+
+                                if self.save_fold:
+                                        line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
+                                        with open(f'{txt_path}.txt', 'a') as f:
+                                            f.write(('%g ' * len(line)).rstrip() % line + '\n')
+                                if names[int(cls)] == 'PB' or names[int(cls)] == 'RB':
+                                    c = int(cls)  # integer class
+                                    statistic_dic[names[c]] += 1
+                                    label = None if hide_labels else (
+                                        names[c] if hide_conf else f'{names[c]} {conf:.2f}')
+                                    annotator.box_label(xyxy, label, color=colors(c, True))
 
                     if self.rate_check:
                         time.sleep(1 / self.rate)
@@ -216,8 +233,10 @@ class DetThread(QThread):
                     self.send_img.emit(im0)
                     self.send_raw.emit(im0s if isinstance(im0s, np.ndarray) else im0s[0])
                     self.send_statistic.emit(statistic_dic)
+
                     if self.save_fold:
                         os.makedirs(self.save_fold, exist_ok=True)
+
                         if self.vid_cap is None:
                             save_path = os.path.join(self.save_fold,
                                                      time.strftime('%Y_%m_%d_%H_%M_%S',
@@ -332,6 +351,7 @@ class MainWindow(QMainWindow, Ui_mainWindow):
     def is_save(self):
         if self.saveCheckBox.isChecked():
             self.det_thread.save_fold = './result'
+
         else:
             self.det_thread.save_fold = None
 
