@@ -31,6 +31,8 @@ from utils.general import (DATASETS_DIR, LOGGER, NUM_THREADS, check_dataset, che
                            segments2boxes, xyn2xy, xywh2xyxy, xywhn2xyxy, xyxy2xywhn)
 from utils.torch_utils import torch_distributed_zero_first
 
+import ceshi
+
 # Parameters
 HELP_URL = 'https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data'
 IMG_FORMATS = ['bmp', 'dng', 'jpeg', 'jpg', 'mpo', 'png', 'tif', 'tiff', 'webp']  # include image suffixes
@@ -227,7 +229,17 @@ class LoadImages:
         img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         img = np.ascontiguousarray(img)
 
-        return path, img, img0, self.cap
+        altered_img0 = img0.copy()
+        if ceshi.get_lightness(img0) < 130:
+            altered_img0 = ceshi.reconstruct_image(altered_img0)
+        # Padded resize
+        alter_img = letterbox(altered_img0, self.img_size, stride=self.stride, auto=self.auto)[0]
+
+        # Convert
+        alter_img = alter_img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+        alter_img = np.ascontiguousarray(alter_img)
+
+        return path, img, alter_img, img0, self.cap
 
     def new_video(self, path):
         self.frame = 0

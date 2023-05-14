@@ -1,7 +1,9 @@
 from PyQt5.QtWidgets import QApplication, QMainWindow, QFileDialog, QMenu, QAction
-from main_win.win import Ui_mainWindow
+from main_win.win_test import Ui_mainWindow
 from PyQt5.QtCore import Qt, QPoint, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap, QPainter, QIcon
+import ceshi
+import scratch_2
 
 import sys
 import os
@@ -42,12 +44,13 @@ class DetThread(QThread):
         self.source = '0'
         self.conf_thres = 0.25
         self.iou_thres = 0.45
-        self.jump_out = False                   # jump out of the loop
-        self.is_continue = True                 # continue/pause
-        self.percent_length = 1000              # progress bar
-        self.rate_check = True                  # Whether to enable delay
+        self.jump_out = False  # jump out of the loop
+        self.is_continue = True  # continue/pause
+        self.percent_length = 1000  # progress bar
+        self.rate_check = True  # Whether to enable delay
         self.rate = 100
         self.save_fold = './result'
+        self.low_illumination = True  # whether to enhance images
 
     @torch.no_grad()
     def run(self,
@@ -130,18 +133,27 @@ class DetThread(QThread):
                     if device.type != 'cpu':
                         model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
                     self.current_weight = self.weights
+                    t0 = time.time()
+                    count = 0
+                    tplay = 0
                 if self.is_continue:
-                    path, img, im0s, self.vid_cap = next(dataset)
+                    path, img, alter_img, im0s, self.vid_cap = next(dataset)
+                    if self.low_illumination == True:
+                        if ceshi.get_lightness(im0s) >= 130:
+                            self.send_msg.emit('Lightness is enough, no need to enhance')
+                            print('Lightness is enough, no need to enhance')
+                        else:
+                            img = alter_img
                     # jump_count += 1
                     # if jump_count % 5 != 0:
                     #     continue
                     count += 1
                     if count % 30 == 0 and count >= 30:
-                        fps = int(30/(time.time()-start_time))
-                        self.send_fps.emit('fps：'+str(fps))
+                        fps = int(30 / (time.time() - start_time))
+                        self.send_fps.emit('fps：' + str(fps))
                         start_time = time.time()
                     if self.vid_cap:
-                        percent = int(count/self.vid_cap.get(cv2.CAP_PROP_FRAME_COUNT)*self.percent_length)
+                        percent = int(count / self.vid_cap.get(cv2.CAP_PROP_FRAME_COUNT) * self.percent_length)
                         self.send_percent.emit(percent)
                     else:
                         percent = self.percent_length
@@ -156,15 +168,41 @@ class DetThread(QThread):
                     pred = model(img, augment=augment)[0]
 
                     # Apply NMS
-                    pred = non_max_suppression(pred, self.conf_thres, self.iou_thres, classes, agnostic_nms, max_det=max_det)
+                    pred = non_max_suppression(pred, self.conf_thres, self.iou_thres, classes, agnostic_nms,
+                                               max_det=max_det)
                     # Process detections
                     for i, det in enumerate(pred):  # detections per image
+                        s=''
                         im0 = im0s.copy()
+                        s += '%gx%g ' % img.shape[2:]  # 输出字符串
+                        gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # 归一化增益
+                        if self.low_illumination == True and ceshi.get_lightness(im0s) < 130:
+                            im0 = ceshi.reconstruct_image(im0)
                         annotator = Annotator(im0, line_width=line_thickness, example=str(names))
+
                         if len(det):
                             # Rescale boxes from img_size to im0 size
                             det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
+                            for c in det[:, -1].unique():  # 输出结果
+                                n = (det[:, -1] == c).sum()  # 每类检测数
+                                s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # 添加到字符串
+                            if names[int(c)] == 'RB':  # 判断标签类型为骑车
+                                value = det[:, 4].max().item()  # 解决的是看到视频就报警 每取四个值 找到最大
+                                print(value)
+                                if value > 0.8:  # 大于0.8播放警示语音
+                                    count += 1  # count等于一个滤波 小延时 防止误报 累计5个数之后再报
+                                    if count > 5:
+                                        count = 0
+                                        if time.time() - tplay > 3:  # 防止声音叠加 1.8s播放完再继续
+                                            os.system(
+                                                'start /b '
+                                                'D:/PyQt5-YOLOv5/ffmpeg-master-latest-win64-gpl/bin/ffplay.exe '
+                                                '-autoexit '
+                                                '-nodisp D:/PyQt5-YOLOv5/ffmpeg-master-latest-win64-gpl/02.mp3')  # 音乐播放
 
+                                            # 参数含义： start /b 后台启动    ffplay音乐播放软件的位置
+                                            # -autoexit 播放完毕自动退出    -nodisp不显示窗口     mp3语音的位置路径
+                                            tplay = time.time()  # 当前系统时钟
                             # Write results
                             for *xyxy, conf, cls in reversed(det):
                                 c = int(cls)  # integer class
@@ -173,7 +211,7 @@ class DetThread(QThread):
                                 annotator.box_label(xyxy, label, color=colors(c, True))
 
                     if self.rate_check:
-                        time.sleep(1/self.rate)
+                        time.sleep(1 / self.rate)
                     im0 = annotator.result()
                     self.send_img.emit(im0)
                     self.send_raw.emit(im0s if isinstance(im0s, np.ndarray) else im0s[0])
@@ -193,7 +231,8 @@ class DetThread(QThread):
                                 # width = int(self.vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                                 # height = int(self.vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                                 width, height = im0.shape[1], im0.shape[0]
-                                save_path = os.path.join(self.save_fold, time.strftime('%Y_%m_%d_%H_%M_%S', time.localtime()) + '.mp4')
+                                save_path = os.path.join(self.save_fold,
+                                                         time.strftime('%Y_%m_%d_%H_%M_%S', time.localtime()) + '.mp4')
                                 self.out = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*"mp4v"), ori_fps,
                                                            (width, height))
                             self.out.write(im0)
@@ -207,7 +246,7 @@ class DetThread(QThread):
 
         except Exception as e:
             self.send_msg.emit('%s' % e)
-
+            print(e)
 
 
 class MainWindow(QMainWindow, Ui_mainWindow):
@@ -217,12 +256,12 @@ class MainWindow(QMainWindow, Ui_mainWindow):
         self.m_flag = False
 
         # style 1: window can be stretched
-        # self.setWindowFlags(Qt.CustomizeWindowHint | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.CustomizeWindowHint | Qt.WindowStaysOnTopHint)
 
         # style 2: window can not be stretched
-        self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint
-                            | Qt.WindowSystemMenuHint | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint)
-        # self.setWindowOpacity(0.85)  # Transparency of window
+        # self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint
+        #                     | Qt.WindowSystemMenuHint | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint)
+        # # self.setWindowOpacity(0.85)  # Transparency of window
 
         self.minButton.clicked.connect(self.showMinimized)
         self.maxButton.clicked.connect(self.max_or_restore)
@@ -238,7 +277,7 @@ class MainWindow(QMainWindow, Ui_mainWindow):
         self.comboBox.clear()
         self.pt_list = os.listdir('./pt')
         self.pt_list = [file for file in self.pt_list if file.endswith('.pt')]
-        self.pt_list.sort(key=lambda x: os.path.getsize('./pt/'+x))
+        self.pt_list.sort(key=lambda x: os.path.getsize('./pt/' + x))
         self.comboBox.clear()
         self.comboBox.addItems(self.pt_list)
         self.qtimer_search = QTimer(self)
@@ -247,12 +286,13 @@ class MainWindow(QMainWindow, Ui_mainWindow):
 
         # yolov5 thread
         self.det_thread = DetThread()
+        self.det_thread = DetThread()
         self.model_type = self.comboBox.currentText()
         self.det_thread.weights = "./pt/%s" % self.model_type
         self.det_thread.source = '0'
         self.det_thread.percent_length = self.progressBar.maximum()
-        self.det_thread.send_raw.connect(lambda x: self.show_image(x, self.raw_video))
-        self.det_thread.send_img.connect(lambda x: self.show_image(x, self.out_video))
+        self.det_thread.send_raw.connect(lambda x: self.show_image(self, img_src=x, label=self.raw_video))
+        self.det_thread.send_img.connect(lambda x: self.show_image(self, img_src=x, label=self.out_video))
         self.det_thread.send_statistic.connect(self.show_statistic)
         self.det_thread.send_msg.connect(lambda x: self.show_msg(x))
         self.det_thread.send_percent.connect(lambda x: self.progressBar.setValue(x))
@@ -276,6 +316,8 @@ class MainWindow(QMainWindow, Ui_mainWindow):
         self.checkBox.clicked.connect(self.checkrate)
         self.saveCheckBox.clicked.connect(self.is_save)
         self.load_setting()
+
+        self.checkBox_low_illumination.clicked.connect(self.low_illumination)
 
     def search_pt(self):
         pt_list = os.listdir('./pt')
@@ -412,15 +454,15 @@ class MainWindow(QMainWindow, Ui_mainWindow):
 
     def change_val(self, x, flag):
         if flag == 'confSpinBox':
-            self.confSlider.setValue(int(x*100))
+            self.confSlider.setValue(int(x * 100))
         elif flag == 'confSlider':
-            self.confSpinBox.setValue(x/100)
-            self.det_thread.conf_thres = x/100
+            self.confSpinBox.setValue(x / 100)
+            self.det_thread.conf_thres = x / 100
         elif flag == 'iouSpinBox':
-            self.iouSlider.setValue(int(x*100))
+            self.iouSlider.setValue(int(x * 100))
         elif flag == 'iouSlider':
-            self.iouSpinBox.setValue(x/100)
-            self.det_thread.iou_thres = x/100
+            self.iouSpinBox.setValue(x / 100)
+            self.det_thread.iou_thres = x / 100
         elif flag == 'rateSpinBox':
             self.rateSlider.setValue(x)
         elif flag == 'rateSlider':
@@ -453,7 +495,7 @@ class MainWindow(QMainWindow, Ui_mainWindow):
         if not os.path.exists(open_fold):
             open_fold = os.getcwd()
         name, _ = QFileDialog.getOpenFileName(self, 'Video/image', open_fold, "Pic File(*.mp4 *.mkv *.avi *.flv "
-                                                                          "*.jpg *.png)")
+                                                                              "*.jpg *.png)")
         if name:
             self.det_thread.source = name
             self.statistic_msg('Loaded file：{}'.format(os.path.basename(name)))
@@ -504,13 +546,13 @@ class MainWindow(QMainWindow, Ui_mainWindow):
         self.m_flag = False
 
     @staticmethod
-    def show_image(img_src, label):
+    def show_image(self, img_src, label):
         try:
             ih, iw, _ = img_src.shape
             w = label.geometry().width()
             h = label.geometry().height()
             # keep original aspect ratio
-            if iw/w > ih/h:
+            if iw / w > ih / h:
                 scal = w / iw
                 nw = w
                 nh = int(scal * ih)
@@ -535,7 +577,7 @@ class MainWindow(QMainWindow, Ui_mainWindow):
             self.resultWidget.clear()
             statistic_dic = sorted(statistic_dic.items(), key=lambda x: x[1], reverse=True)
             statistic_dic = [i for i in statistic_dic if i[1] > 0]
-            results = [' '+str(i[0]) + '：' + str(i[1]) for i in statistic_dic]
+            results = [' ' + str(i[0]) + '：' + str(i[1]) for i in statistic_dic]
             self.resultWidget.addItems(results)
 
         except Exception as e:
@@ -556,6 +598,12 @@ class MainWindow(QMainWindow, Ui_mainWindow):
         MessageBox(
             self.closeButton, title='Tips', text='Closing the program', time=2000, auto=True).exec_()
         sys.exit(0)
+
+    def low_illumination(self):
+        if self.checkBox_low_illumination.isChecked():
+            self.det_thread.low_illumination = True
+        else:
+            self.det_thread.low_illumination = False
 
 
 if __name__ == "__main__":

@@ -17,8 +17,8 @@
    <string>YOLOv5检测界面</string>
   </property>
   <property name="windowIcon">
-   <iconset resource="../apprcc.qrc">
-    <normaloff>:/img/icon/图片1.png</normaloff>:/img/icon/图片1.png</iconset>
+   <iconset>
+    <normaloff>../icon/change_icon.png</normaloff>../icon/change_icon.png</iconset>
   </property>
   <property name="styleSheet">
    <string notr="true">#mainWindow{border:none;}</string>
@@ -104,28 +104,6 @@ border-radius:0px;}</string>
            <number>0</number>
           </property>
           <item>
-           <widget class="QLabel" name="label_7">
-            <property name="minimumSize">
-             <size>
-              <width>40</width>
-              <height>40</height>
-             </size>
-            </property>
-            <property name="maximumSize">
-             <size>
-              <width>40</width>
-              <height>40</height>
-             </size>
-            </property>
-            <property name="styleSheet">
-             <string notr="true">image: url(:/img/icon/conan.png);</string>
-            </property>
-            <property name="text">
-             <string/>
-            </property>
-           </widget>
-          </item>
-          <item>
            <widget class="QLabel" name="label_4">
             <property name="styleSheet">
              <string notr="true">QLabel
@@ -140,7 +118,7 @@ color: rgb(218, 218, 218);
 </string>
             </property>
             <property name="text">
-             <string>YOLOv5 GUI</string>
+             <string>实时自行车违规识别系统</string>
             </property>
            </widget>
           </item>
@@ -389,7 +367,7 @@ color: rgb(218, 218, 218);
 </string>
                  </property>
                  <property name="text">
-                  <string>setting</string>
+                  <string>参数设置</string>
                  </property>
                 </widget>
                </item>
@@ -444,7 +422,7 @@ color: rgb(218, 218, 218);
 </string>
                 </property>
                 <property name="text">
-                 <string>model</string>
+                 <string>模型选择</string>
                 </property>
                </widget>
               </item>
@@ -535,7 +513,7 @@ color: rgb(218, 218, 218);
 </string>
                 </property>
                 <property name="text">
-                 <string>input</string>
+                 <string>输入选择</string>
                 </property>
                </widget>
               </item>
@@ -965,7 +943,7 @@ color: rgb(218, 218, 218);
 </string>
                 </property>
                 <property name="text">
-                 <string>conf</string>
+                 <string>置信度</string>
                 </property>
                </widget>
               </item>
@@ -1107,7 +1085,7 @@ color: rgb(218, 218, 218);
 </string>
                   </property>
                   <property name="text">
-                   <string>latency</string>
+                   <string>帧间延时</string>
                   </property>
                  </widget>
                 </item>
@@ -1325,7 +1303,7 @@ QCheckBox::indicator:checked {
 </string>
                  </property>
                  <property name="text">
-                  <string>save automatically</string>
+                  <string>自动保存</string>
                  </property>
                  <property name="checked">
                   <bool>true</bool>
@@ -1395,7 +1373,7 @@ color: rgb(218, 218, 218);
 </string>
                    </property>
                    <property name="text">
-                    <string>result statistics</string>
+                    <string>结果统计</string>
                    </property>
                   </widget>
                  </item>
@@ -1563,7 +1541,7 @@ color: rgb(218, 218, 218);
 </string>
                  </property>
                  <property name="text">
-                  <string>view</string>
+                  <string>实时显示</string>
                  </property>
                 </widget>
                </item>
